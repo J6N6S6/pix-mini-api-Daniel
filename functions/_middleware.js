@@ -7,6 +7,8 @@ const allowedOrigins = new Set([
   "http://192.168.0.11:3000",
   // "https://seu-checkout-will.vercel.app",
   // "https://www.seudominio.com",
+  "https://maisdigital.space",
+  "maisdigital.space",
 ]);
 
 // Remove barra final, espaços etc.
