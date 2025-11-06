@@ -3,7 +3,8 @@
 
 const allowedOrigins = [
   "http://localhost:3000",
-  "http://127.0.0.1:3000"
+  "http://127.0.0.1:3000",
+  "http://192.168.0.11:3000/"
   // 👉 depois você adiciona aqui:
   // "https://checkout-will.vercel.app",
   // "https://www.seudominio.com"
