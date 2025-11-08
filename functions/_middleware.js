@@ -1,32 +1,44 @@
-// _middleware.js  (Cloudflare Pages Functions)
-// CORS baseado em variável de ambiente CORS_ORIGIN
-// Aceita: "*"  ou lista separada por vírgulas/espaços (sem barra final).
+// _middleware.js — Cloudflare Pages Functions
+// Lê CORS_ORIGIN do "env" (Pages Functions), não de process.env!
+// CORS_ORIGIN pode ser "*" OU uma lista separada por vírgulas/espaços.
 // Ex.: CORS_ORIGIN="https://maisdigital.space https://checkout-will.vercel.app http://localhost:3000"
 
-const corsEnv = (typeof process !== "undefined" && process.env.CORS_ORIGIN) || "";
-console.log("[CORS] rawOrigins =>", corsEnv);
+let _corsCache = null; // cache em memória entre requests
 
-const allowAll = corsEnv.trim() === "*";
+function buildCorsConfigFromEnv(env) {
+  const raw = (env && env.CORS_ORIGIN) ? String(env.CORS_ORIGIN) : "";
+  const allowAll = raw.trim() === "*";
 
-function normalize(s = "") {
-  return String(s).trim().replace(/\/+$/, ""); // remove barra(s) final(is)
+  const normalize = (s = "") => String(s).trim().replace(/\/+$/, "");
+
+  const allowed = allowAll
+    ? new Set()
+    : new Set(
+        raw
+          .split(/[, ]+/)        // vírgula OU espaço
+          .map(normalize)
+          .filter(Boolean)
+      );
+
+  return { allowAll, allowed, normalize, raw };
 }
 
-const allowedOrigins = new Set(
-  allowAll
-    ? []
-    : corsEnv
-        .split(/[, ]+/)               // vírgula OU espaço
-        .map(normalize)
-        .filter(Boolean)
-);
+function getAllowedOrigin(request, env) {
+  // (re)monta configuração se ainda não existe ou se mudou o valor
+  if (!_corsCache || (_corsCache.raw || "") !== (env?.CORS_ORIGIN || "")) {
+    _corsCache = buildCorsConfigFromEnv(env);
+    console.log("[CORS] rawOrigins =>", _corsCache.raw || "(vazio)");
+  }
 
-function getAllowedOrigin(request) {
+  const { allowAll, allowed, normalize } = _corsCache;
+
   const origin = normalize(request.headers.get("Origin"));
-  if (!origin) return "";
-  if (allowAll) return origin;        // curinga: reflete a origem solicitante
-  if (allowedOrigins.has(origin)) return origin;
-  return "";                          // bloqueia se não listado
+  if (!origin) return "";               // sem origem -> não seta header
+
+  if (allowAll) return origin;          // modo curinga: reflete a origem solicitante
+  if (allowed.has(origin)) return origin;
+
+  return "";                            // bloqueia se não listado
 }
 
 const baseCorsHeaders = {
@@ -37,8 +49,8 @@ const baseCorsHeaders = {
 };
 
 // OPTIONS (preflight)
-export const onRequestOptions = async ({ request }) => {
-  const allowOrigin = getAllowedOrigin(request);
+export const onRequestOptions = async ({ request, env }) => {
+  const allowOrigin = getAllowedOrigin(request, env);
   return new Response(null, {
     status: 204,
     headers: {
@@ -49,16 +61,12 @@ export const onRequestOptions = async ({ request }) => {
 };
 
 // Aplica CORS a todas as respostas
-export const onRequest = async ({ request, next }) => {
+export const onRequest = async ({ request, env, next }) => {
   const res = await next();
-  const allowOrigin = getAllowedOrigin(request);
+  const allowOrigin = getAllowedOrigin(request, env);
 
   const h = new Headers(res.headers);
   if (allowOrigin) h.set("Access-Control-Allow-Origin", allowOrigin);
-  // (Opcional) se precisar enviar cookies/credenciais no futuro:
-  // h.set("Access-Control-Allow-Credentials", "true");
-
-  // garante Vary consistente
   h.set("Vary", baseCorsHeaders.Vary);
 
   return new Response(res.body, { status: res.status, headers: h });
