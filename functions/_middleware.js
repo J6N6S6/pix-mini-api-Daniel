@@ -1,51 +1,65 @@
-// functions/_middleware.js
-// Cloudflare Pages Functions — CORS dinâmico via env CORS_ORIGIN
-// Exemplo de env: CORS_ORIGIN="http://localhost:3000,https://seusite.com,https://cliente1.com"
+// _middleware.js  (Cloudflare Pages Functions)
+// CORS baseado em variável de ambiente CORS_ORIGIN
+// Aceita: "*"  ou lista separada por vírgulas/espaços (sem barra final).
+// Ex.: CORS_ORIGIN="https://maisdigital.space https://checkout-will.vercel.app http://localhost:3000"
 
 const corsEnv = (typeof process !== "undefined" && process.env.CORS_ORIGIN) || "";
+console.log("[CORS] rawOrigins =>", corsEnv);
+
 const allowAll = corsEnv.trim() === "*";
 
 function normalize(s = "") {
-  return String(s).trim().replace(/\/+$/, ""); // remove barra final
+  return String(s).trim().replace(/\/+$/, ""); // remove barra(s) final(is)
 }
 
 const allowedOrigins = new Set(
   allowAll
-    ? [] // ignorado quando "*"
+    ? []
     : corsEnv
-        .split(",")
-        .map(s => normalize(s))
+        .split(/[, ]+/)               // vírgula OU espaço
+        .map(normalize)
         .filter(Boolean)
 );
 
 function getAllowedOrigin(request) {
   const origin = normalize(request.headers.get("Origin"));
   if (!origin) return "";
-  if (allowAll) return origin;          // modo curinga (apenas se CORS_ORIGIN="*")
+  if (allowAll) return origin;        // curinga: reflete a origem solicitante
   if (allowedOrigins.has(origin)) return origin;
-  return "";                            // bloqueia se não listado
+  return "";                          // bloqueia se não listado
 }
 
-// Preflight (OPTIONS)
+const baseCorsHeaders = {
+  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type,Authorization,Idempotency-Key,x-api-token",
+  "Access-Control-Max-Age": "86400",
+  "Vary": "Origin, accept-encoding"
+};
+
+// OPTIONS (preflight)
 export const onRequestOptions = async ({ request }) => {
   const allowOrigin = getAllowedOrigin(request);
   return new Response(null, {
     status: 204,
     headers: {
-      ...(allowOrigin ? { "Access-Control-Allow-Origin": allowOrigin, Vary: "Origin" } : {}),
-      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type,Authorization,Idempotency-Key,x-api-token",
-      "Access-Control-Max-Age": "86400"
+      ...baseCorsHeaders,
+      ...(allowOrigin ? { "Access-Control-Allow-Origin": allowOrigin } : {})
     }
   });
 };
 
-// Aplica CORS em todas as respostas
+// Aplica CORS a todas as respostas
 export const onRequest = async ({ request, next }) => {
   const res = await next();
   const allowOrigin = getAllowedOrigin(request);
-  const headers = new Headers(res.headers);
-  if (allowOrigin) headers.set("Access-Control-Allow-Origin", allowOrigin);
-  headers.set("Vary", "Origin");
-  return new Response(res.body, { status: res.status, headers });
+
+  const h = new Headers(res.headers);
+  if (allowOrigin) h.set("Access-Control-Allow-Origin", allowOrigin);
+  // (Opcional) se precisar enviar cookies/credenciais no futuro:
+  // h.set("Access-Control-Allow-Credentials", "true");
+
+  // garante Vary consistente
+  h.set("Vary", baseCorsHeaders.Vary);
+
+  return new Response(res.body, { status: res.status, headers: h });
 };
